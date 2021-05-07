@@ -1,0 +1,1072 @@
+---
+title: "Final Project Presentation - Reported Crimes in D.C."
+author: "Rob Oandasan"
+date: "5/5/2021"
+output: 
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+    css: shinyprezcss.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+``` {r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+
+library(formatR)
+library(openxlsx)
+library(dplyr)
+library(plyr)
+library(ggplot2)
+library(tidyr)
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(sf)
+library(scales)
+library(ggpubr)
+library(leaflet)
+library(htmlwidgets)
+library(htmltools)
+library(raster)
+library(Hmisc)
+library(plotly)
+library(knitr)
+library(jtools)
+library(huxtable)
+library(officer)
+library(flextable)
+
+# Import datasets
+crime_2019 <- read_csv(
+  'D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/data/Crime_Incidents_in_2019.csv'
+  )
+crime_2020 <- read_csv(
+  'D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/data/Crime_Incidents_in_2020.csv'
+  )
+crime_2021 <- read_csv(
+  'D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/data/Crime_Incidents_in_2021.csv'
+  )
+hh_income_2019 <- read_csv(
+  'D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/data/ACS_2019_Median_Household_Income_Variables_Tract.csv'
+  )
+demo_census_tract <- read_csv(
+  'D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/data/ACS_Demographic_Characteristics_DC_Census_Tract.csv'
+  )
+
+
+# Process HH Income 2019 Data
+hh_income_2019 <- dplyr::rename(hh_income_2019, objectid = OBJECTID, 
+                                geoid = GEOID, 
+                                aland = ALAND, 
+                                awater = AWATER, 
+                                name = NAME, 
+                                state = State, 
+                                county = County, 
+                                med_hh_income = B19049_001E, 
+                                med_hh_income_under25 = B19049_002E, 
+                                med_hh_income_25_44 = B19049_003E, 
+                                med_hh_income_45_64 = B19049_004E, 
+                                med_hh_income_65over = B19049_005E, 
+                                med_hh_income_afr_am = B19013B_001E, 
+                                med_hh_income_am_ind = B19013C_001E, 
+                                med_hh_income_asian = B19013D_001E, 
+                                med_hh_income_hi = B19013E_001E, 
+                                med_hh_income_other_race = B19013F_001E, 
+                                med_hh_income_2plus_race = B19013G_001E, 
+                                med_hh_income_white_nonhispanic = B19013H_001E, 
+                                med_hh_income_hispanice = B19013I_001E, 
+                                total_hh = B19053_001E, 
+                                hh_self_employment = B19053_002E, 
+                                hh_no_self_employment = B19053_003E, 
+                                pct_hh_any_self_employment = B19053_calc_pctSelfempE, 
+                                shape_area = SHAPE_Length, 
+                                shape_length = SHAPE_Area
+)
+
+
+hh_income_2019 <- select(hh_income_2019, 
+                         objectid,
+                         geoid,
+                         aland,
+                         awater,
+                         name,
+                         state,
+                         county,
+                         med_hh_income,
+                         med_hh_income_under25,
+                         med_hh_income_25_44,
+                         med_hh_income_45_64,
+                         med_hh_income_65over,
+                         med_hh_income_afr_am,
+                         med_hh_income_am_ind,
+                         med_hh_income_asian,
+                         med_hh_income_hi,
+                         med_hh_income_other_race,
+                         med_hh_income_2plus_race,
+                         med_hh_income_white_nonhispanic,
+                         med_hh_income_hispanice,
+                         total_hh,
+                         hh_self_employment,
+                         hh_no_self_employment,
+                         pct_hh_any_self_employment,
+                         shape_area,
+                         shape_length
+)
+
+# Create Census Tract Variable
+hh_income_2019$census_tract <- hh_income_2019$geoid
+hh_income_2019$census_tract <- str_sub(hh_income_2019$census_tract, -6, -1)
+
+# Select just Census Tract and Med HH Income vars
+census_tract_inc <- dplyr::select(hh_income_2019, census_tract,med_hh_income,total_hh)
+
+# Process Demographics Dataset
+demo_census_tract <- dplyr::rename(demo_census_tract,objectid = OBJECTID, 
+                                   statefp = STATEFP, 
+                                   countyfp = COUNTYFP, 
+                                   census_tract = TRACTCE, 
+                                   geoid = GEOID, 
+                                   tract_name = NAME, 
+                                   name_lsad = NAMELSAD, 
+                                   mtfcc = MTFCC, 
+                                   funcstat = FUNCSTAT, 
+                                   aland = ALAND, 
+                                   awater = AWATER, 
+                                   intptlat = INTPTLAT, 
+                                   intpltlon = INTPTLON, 
+                                   sex_age_total_pop = DP05_0001E, 
+                                   sex_age_male = DP05_0002E, 
+                                   sex_age_female = DP05_0003E, 
+                                   sex_age_sex_ratio = DP05_0004E, 
+                                   age_under5 = DP05_0005E, 
+                                   age_5_9 = DP05_0006E, 
+                                   age_10_14 = DP05_0007E, 
+                                   age_15_19 = DP05_0008E, 
+                                   age_20_24 = DP05_0009E, 
+                                   age_25_34 = DP05_0010E, 
+                                   age_35_44 = DP05_0011E, 
+                                   age_45_54 = DP05_0012E, 
+                                   age_55_59 = DP05_0013E, 
+                                   age_60_64 = DP05_0014E, 
+                                   age_65_74 = DP05_0015E, 
+                                   age_75_84 = DP05_0016E, 
+                                   age_85over = DP05_0017E, 
+                                   age_median = DP05_0018E, 
+                                   age_under18 = DP05_0019E, 
+                                   age_16over = DP05_0020E, 
+                                   age_18over = DP05_0021E, 
+                                   age_21over = DP05_0022E, 
+                                   age_62over = DP05_0023E, 
+                                   age_65over = DP05_0024E, 
+                                   age_18over2 = DP05_0025E, 
+                                   age_18over_male = DP05_0026E, 
+                                   age_18over_female = DP05_0027E, 
+                                   age_18over_sex_ratio = DP05_0028E, 
+                                   age_65over2 = DP05_0029E, 
+                                   age_65over_male = DP05_0030E, 
+                                   age_65over_female = DP05_0031E, 
+                                   age_65ovr_sex_ratio = DP05_0032E, 
+                                   race_total_pop = DP05_0033E, 
+                                   race_1_race = DP05_0034E, 
+                                   race_2plus_race = DP05_0035E, 
+                                   race_1_race2 = DP05_0036E, 
+                                   race_1_white = DP05_0037E, 
+                                   race_1_black = DP05_0038E, 
+                                   race_1_am_ind = DP05_0039E, 
+                                   race_1_am_ind_cherokee = DP05_0040E, 
+                                   race_1_am_ind_chippewa = DP05_0041E, 
+                                   race_1_am_ind_navajo = DP05_0042E, 
+                                   race_1_am_ind_sioux = DP05_0043E, 
+                                   race_1_asian = DP05_0044E, 
+                                   race_1_asian_indian = DP05_0045E, 
+                                   race_1_asian_chinese = DP05_0046E, 
+                                   race_1_asian_filipino = DP05_0047E, 
+                                   race_1_asian_japanese = DP05_0048E, 
+                                   race_1_asian_korean = DP05_0049E, 
+                                   race_1_asian_vietnamese = DP05_0050E, 
+                                   race_1_asian_other = DP05_0051E, 
+                                   race_1_hawaiian_pi = DP05_0052E, 
+                                   race_1_hawaiian_pi_native_hi = DP05_0053E, 
+                                   race_1_hawaiian_pi_guamanian = DP05_0054E, 
+                                   race_1_hawaiian_pi_samoan = DP05_0055E, 
+                                   race_1_hawaiian_pi_other = DP05_0056E, 
+                                   race_1_other = DP05_0057E, 
+                                   race_2plus_race2 = DP05_0058E, 
+                                   race_2plus_white_black = DP05_0059E, 
+                                   race_2plus_white_am_ind = DP05_0060E, 
+                                   race_2plus_white_asian = DP05_0061E, 
+                                   race_2plus_black_am_ind = DP05_0062E, 
+                                   race_alone_combo_total_pop = DP05_0063E, 
+                                   race_alone_combo_total_pop_white = DP05_0064E, 
+                                   race_alone_combo_total_pop_black = DP05_0065E, 
+                                   race_alone_combo_total_pop_am_ind = DP05_0066E, 
+                                   race_alone_combo_total_pop_asian = DP05_0067E, 
+                                   race_alone_combo_total_pop_hawaiian_pi = DP05_0068E, 
+                                   race_alone_combo_total_pop_other = DP05_0069E, 
+                                   hispanic_latino_total_pop = DP05_0070E, 
+                                   hispanic_latino_any = DP05_0071E, 
+                                   hispanic_latino_mexican = DP05_0072E, 
+                                   hispanic_latino_puerto_rican = DP05_0073E, 
+                                   hispanic_latino_cuban = DP05_0074E, 
+                                   hispanic_latino_other = DP05_0075E, 
+                                   not_hispanic_latino = DP05_0076E, 
+                                   not_hispanic_latino_white = DP05_0077E, 
+                                   not_hispanic_latino_black = DP05_0078E, 
+                                   not_hispanic_latino_am_ind = DP05_0079E, 
+                                   not_hispanic_latino_asian = DP05_0080E, 
+                                   not_hispanic_latino_hawaiian_pi = DP05_0081E, 
+                                   not_hispanic_latino_other = DP05_0082E, 
+                                   not_hispanic_latino_2plus = DP05_0083E, 
+                                   not_hispanic_latino_2plus_other_race = DP05_0084E, 
+                                   not_hispanic_latino_3pus = DP05_0085E, 
+                                   total_housing_units = DP05_0086E, 
+                                   voting_age_18over = DP05_0087E, 
+                                   voting_age_18over_male = DP05_0088E, 
+                                   voting_age_18over_female = DP05_0089E, 
+                                   shape_area = SHAPEAREA, 
+                                   shape_len = SHAPELEN
+)
+
+# Calculate % race and population density by census tract
+
+demo_census_tract2 <- dplyr::select(demo_census_tract,census_tract,aland,
+                                    sex_age_sex_ratio,age_median,
+                                    race_total_pop,race_1_race,race_2plus_race,not_hispanic_latino,not_hispanic_latino_white,
+                                    not_hispanic_latino_black,not_hispanic_latino_am_ind,not_hispanic_latino_asian,
+                                    not_hispanic_latino_hawaiian_pi,not_hispanic_latino_other)
+
+demo_census_tract2 <- demo_census_tract2 %>% 
+                      mutate(
+                        pop_dens = race_total_pop / (aland*0.000621371),
+                        hispanic_latino_num = race_total_pop - not_hispanic_latino,
+                        pct_white = not_hispanic_latino_white/race_total_pop,
+                        pct_black = not_hispanic_latino_black/race_total_pop,
+                        pct_am_ind = not_hispanic_latino_am_ind/race_total_pop,
+                        pct_asian = not_hispanic_latino_asian/race_total_pop,
+                        pct_hawaiian_pi = not_hispanic_latino_hawaiian_pi/race_total_pop,
+                        pct_hispanic_latino = hispanic_latino_num/race_total_pop,
+                        pct_other = not_hispanic_latino_other / race_total_pop,
+                        pct_2_races = race_2plus_race / race_total_pop,
+                        sum_pct = pct_white + pct_black + pct_am_ind + pct_asian + pct_hawaiian_pi + pct_hispanic_latino + pct_other + pct_2_races
+                      )
+demo_census_tract3 <- dplyr::select(demo_census_tract2,census_tract,pop_dens,sex_age_sex_ratio,age_median,pct_white,pct_black,pct_am_ind,pct_asian,
+                                    pct_hawaiian_pi, pct_hispanic_latino,pct_other,pct_2_races)
+
+demo_census_tract3 <- filter(demo_census_tract3, !is.na(demo_census_tract3$age_median))
+
+
+# Process 2019, 2020, and 2021 Crime Datasets
+crime_2019 <- dplyr::rename(crime_2019, x = X, 
+                            y = Y, 
+                            ccn = CCN, 
+                            report_date_str = REPORT_DAT, 
+                            shift = SHIFT, 
+                            method = METHOD, 
+                            offense = OFFENSE, 
+                            block = BLOCK, 
+                            xblock = XBLOCK, 
+                            yblock = YBLOCK, 
+                            ward = WARD, 
+                            anc = ANC, 
+                            district = DISTRICT, 
+                            psa = PSA, 
+                            neighborhood_cluster = NEIGHBORHOOD_CLUSTER, 
+                            block_group = BLOCK_GROUP, 
+                            census_tract = CENSUS_TRACT, 
+                            voting_precinct = VOTING_PRECINCT, 
+                            latitude = LATITUDE, 
+                            longitude = LONGITUDE, 
+                            bid = BID, 
+                            start_date = START_DATE, 
+                            end_date = END_DATE, 
+                            objectid = OBJECTID, 
+                            octo_record_id = OCTO_RECORD_ID
+)
+
+crime_2020 <- dplyr::rename(crime_2020, x = X, 
+                            y = Y, 
+                            ccn = CCN, 
+                            report_date_str = REPORT_DAT, 
+                            shift = SHIFT, 
+                            method = METHOD, 
+                            offense = OFFENSE, 
+                            block = BLOCK, 
+                            xblock = XBLOCK, 
+                            yblock = YBLOCK, 
+                            ward = WARD, 
+                            anc = ANC, 
+                            district = DISTRICT, 
+                            psa = PSA, 
+                            neighborhood_cluster = NEIGHBORHOOD_CLUSTER, 
+                            block_group = BLOCK_GROUP, 
+                            census_tract = CENSUS_TRACT, 
+                            voting_precinct = VOTING_PRECINCT, 
+                            latitude = LATITUDE, 
+                            longitude = LONGITUDE, 
+                            bid = BID, 
+                            start_date = START_DATE, 
+                            end_date = END_DATE, 
+                            objectid = OBJECTID, 
+                            octo_record_id = OCTO_RECORD_ID
+)
+
+
+crime_2021 <- dplyr::rename(crime_2021, x = X, 
+                            y = Y, 
+                            ccn = CCN, 
+                            report_date_str = REPORT_DAT, 
+                            shift = SHIFT, 
+                            method = METHOD, 
+                            offense = OFFENSE, 
+                            block = BLOCK, 
+                            xblock = XBLOCK, 
+                            yblock = YBLOCK, 
+                            ward = WARD, 
+                            anc = ANC, 
+                            district = DISTRICT, 
+                            psa = PSA, 
+                            neighborhood_cluster = NEIGHBORHOOD_CLUSTER, 
+                            block_group = BLOCK_GROUP, 
+                            census_tract = CENSUS_TRACT, 
+                            voting_precinct = VOTING_PRECINCT, 
+                            latitude = LATITUDE, 
+                            longitude = LONGITUDE, 
+                            bid = BID, 
+                            start_date = START_DATE, 
+                            end_date = END_DATE, 
+                            objectid = OBJECTID, 
+                            octo_record_id = OCTO_RECORD_ID
+)
+
+# Separate report date and report time from current report_date variable
+crime_2019_clean <- crime_2019 %>% 
+  separate(report_date_str, c("report_date","report_time")," ")
+
+crime_2020_clean <- crime_2020 %>% 
+  separate(report_date_str, c("report_date","report_time")," ")
+
+crime_2021_clean <- crime_2021 %>% 
+  separate(report_date_str, c("report_date","report_time")," ")
+
+crime_2019_clean$report_time <- str_sub(crime_2019_clean$report_time, 1, 8)
+crime_2020_clean$report_time <- str_sub(crime_2020_clean$report_time, 1, 8)
+crime_2021_clean$report_time <- str_sub(crime_2021_clean$report_time, 1, 8)
+
+# Convert to R date and time variables
+crime_2019_clean$report_date <- ymd(crime_2019_clean$report_date)
+crime_2019_clean$report_time <- hms(crime_2019_clean$report_time)
+
+crime_2020_clean$report_date <- ymd(crime_2020_clean$report_date)
+crime_2020_clean$report_time <- hms(crime_2020_clean$report_time)
+
+crime_2021_clean$report_date <- ymd(crime_2021_clean$report_date)
+crime_2021_clean$report_time <- hms(crime_2021_clean$report_time)
+
+# Get report weekday, month, and hour for counts later
+crime_2019_clean <- crime_2019_clean %>%  
+  mutate(dow = wday(report_date,label=TRUE),
+         mth = month(report_date),
+         yr = year(report_date),
+         hr = hour(report_time))
+
+crime_2019_clean$yrmo <- as.Date(as.yearmon(paste(crime_2019_clean$yr, crime_2019_clean$mth), "%Y %m"))
+
+crime_2020_clean <- crime_2020_clean %>%  
+  mutate(dow = wday(report_date,label=TRUE),
+         mth = month(report_date),
+         yr = year(report_date),
+         hr = hour(report_time))
+
+crime_2020_clean$yrmo <- as.Date(as.yearmon(paste(crime_2020_clean$yr, crime_2020_clean$mth), "%Y %m"))
+
+crime_2021_clean <- crime_2021_clean %>%  
+  mutate(dow = wday(report_date,label=TRUE),
+         mth = month(report_date),
+         yr = year(report_date),
+         hr = hour(report_time))
+
+
+crime_2021_clean$yrmo <- as.Date(as.yearmon(paste(crime_2021_clean$yr, crime_2021_clean$mth), "%Y %m"))
+
+# Stack all years
+crime_all_clean <- rbind(crime_2019_clean, crime_2020_clean, crime_2021_clean)
+
+# Aggregate 2019 for later merging
+
+crime_2019_agg_geo_offense <- crime_2019_clean %>% 
+  group_by(census_tract, offense) %>% 
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+crime_2019_agg_geo <- crime_2019_clean %>% 
+  group_by(census_tract, ward) %>% 
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+crime_2019_agg_census_tract <- crime_2019_clean %>% 
+  group_by(census_tract) %>% 
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+
+# Merge HH Income and Demographics
+
+df_merged <- merge(census_tract_inc, demo_census_tract3, by.x=c("census_tract"), by.y=c("census_tract"), sort = FALSE)
+
+
+# Merge df_merged to aggregated 2019 crime datasets
+df_merged_geo_offense <- merge(crime_2019_agg_geo_offense, df_merged, by.x=c("census_tract"), by.y=c("census_tract"), sort = FALSE)
+df_merged_geo_offense_nona <- filter(df_merged_geo_offense, !is.na(df_merged_geo_offense$med_hh_income))
+
+df_merged_geo <- merge(crime_2019_agg_geo, df_merged, by.x=c("census_tract"), by.y=c("census_tract"), sort = FALSE)
+df_merged_geo_nona <- filter(df_merged_geo, !is.na(df_merged_geo$med_hh_income))
+
+df_merged_census_tract <- merge(crime_2019_agg_census_tract, df_merged, by.x=c("census_tract"), by.y=c("census_tract"), sort = FALSE)
+df_merged_census_tract_nona <- filter(df_merged_census_tract, !is.na(df_merged_census_tract$med_hh_income))
+
+
+```
+
+## Introduction
+This project was prompted by this November 2020 article that I read, headlined, <a href = "https://wamu.org/story/20/11/03/dc-2020-homicide-numbers-surpass-2019/">D.C.'s Homicide Numbers For 2020 Surpassed Last Year's"</a>.
+
+- "There have been 167 homicides in D.C. this year, topping last year's total of 166, the highest since 2008."
+- "At the same time, violent crime in general has fallen 6% over the last year. Reports of sex abuse and robbery have dropped 18% and 13%, respectively, according to police data. Property crime has also sunk 20%. This parallels a national trend of overall crime quieting down after stay-at-home orders took effect in the early days of the pandemic."
+
+
+## Questions
+
+- Is there a statistically significant decrease in crime that happened after the pandemic shut down the city?
+- Is there a relationship between the number and/or types of crimes and specific demographics of an area ? E.g. Are the "richer" parts of DC less prone to crime or less prone to more violent types of crime?
+- How are various types of crimes distributed around Washington, D.C.? E.g. Are auto thefts more common in certain parts of the city?
+
+
+## Summary of Results
+- Yes, there was a statistically significant decrease in crime after the pandemic shut down the city.
+- There seems to be a negative relationship between median age and reported violent crime.
+- There seems to be a positive relationship between % Asian and % Hawaiian/Pacific Islander within Census Tracts and reported non-violent crime.
+- Generally, however, I am hesitant to draw any conclusions because all the models I ran had low adjusted R2, the significance of the coefficients vary.
+
+## Datasets
+I downloaded all my datasets from <a href = "https://opendata.dc.gov/">Open Data DC</a>
+
+- <a href = "https://opendata.dc.gov/datasets/acs-2019-median-household-income-variables-tract/data?geometry=-77.609%2C38.806%2C-76.421%2C38.993&orderBy=ALAND"> ACS_2019_Median_Household_Income_Variables_Tract</a>
+- <a href = "https://opendata.dc.gov/datasets/acs-demographic-characteristics-dc-census-tract/data?geometry=-78.202%2C38.707%2C-75.827%2C39.081"> ACS_Demographic_Characteristics_DC_Census_Tract</a>
+- <a href = "https://opendata.dc.gov/datasets/crime-incidents-in-2019/data?geometry=-77.608%2C38.806%2C-76.420%2C38.993">Crime_Incidents_in_2019</a> 
+- <a href = "https://opendata.dc.gov/datasets/crime-incidents-in-2020/data?geometry=-77.608%2C38.806%2C-76.420%2C38.993">Crime_Incidents_in_2020</a>
+- <a href = "https://opendata.dc.gov/datasets/crime-incidents-in-2021/data?geometry=-77.608%2C38.806%2C-76.420%2C38.993">Crime_Incidents_in_2021</a>
+
+## Dataset Notes
+- From the 2019 Median Household Income Data, I took the Census Tract, Median HH Income, and Total HH variables
+- From the DC Demographic Characteristics Data, I took the Census Tract, (calculated) Population Density, Sex Ratio (# of Males per 100 Females), Median Age, (calculated) % of each reported race (White, Black/African American, American Indian/Alaska Native, Asian, Hispanic/Latino, Hawaiian/Pacific Islander, Other Race, and 2 or More Races)
+- From the Crime Data, I took the Census Tract, Report Date, Report Time, Offense Type, Latitude and Longitude, and Ward.
+
+## Did crime decrease after the city was shutdown in mid-March 2020?
+- Pre-period = March 2019 - February 2020
+- Post-period = March 2020 - February 2021
+- Use a t-test to check if there was a statistically significant decrease in the average monthly reported crimes in the pre-period vs. the post-period.
+
+## Did crime decrease after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+prepost_period_crime <- filter(crime_all_clean, report_date >= as.Date("2019-03-01"), report_date <= as.Date("2021-02-28"))
+
+prepost_period_crime_counts <- prepost_period_crime %>%
+  group_by(yrmo) %>%
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+counts_chart_prepost <- plot_ly(prepost_period_crime_counts, x = ~yrmo, y = ~crime_count, type = 'bar')
+counts_chart_prepost <- counts_chart_prepost %>% 
+  layout(title = "Monthly Reported Crime Counts \n Mar 2019 - Feb 2021",
+         yaxis = list(title = 'Reported Crime Count'),
+         xaxis = list(type = 'date', tickformat = "%b %Y", title = 'Month'))
+
+counts_chart_prepost
+```
+
+## Did crime decrease after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+pre_period_crime <- filter(crime_all_clean, report_date >= as.Date("2019-03-01"), report_date <= as.Date("2020-02-29"))
+
+post_period_crime <- filter(crime_all_clean, report_date >= as.Date("2020-03-01"), report_date <= as.Date("2021-02-28"))
+
+#Calculate Monthly Crime Counts
+
+pre_period_crime_counts <- pre_period_crime %>% 
+  group_by(yrmo) %>% 
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+post_period_crime_counts <- post_period_crime %>% 
+  group_by(yrmo) %>% 
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+boxplot1 <- plot_ly(data = pre_period_crime_counts, y = pre_period_crime_counts$crime_count, type = "box", name="Pre-Period Crime Count")
+boxplot1 <- boxplot1 %>% 
+  add_trace(data= post_period_crime_counts, y = post_period_crime_counts$crime_count, type = "box", name = "Post-Period Crime Count")
+boxplot1 <- boxplot1 %>% 
+  layout(showlegend=FALSE)
+
+boxplot1
+```
+
+
+
+## Did crime decrease after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+t.test(pre_period_crime_counts$crime_count,post_period_crime_counts$crime_count, mu = 0, conf.level = 0.95, alternative = "two.sided")
+```
+
+
+## How did each crime type change after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+pre_period_crime_offense_counts <- pre_period_crime %>% 
+  group_by(yrmo, offense) %>% 
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+pre_period_crime_offense_counts_merge <- pre_period_crime_offense_counts %>%
+  mutate(month = month(yrmo)) %>%
+  dplyr::rename(
+    crime_count_pre = crime_count
+  )
+pre_period_crime_offense_counts_merge <- subset(pre_period_crime_offense_counts_merge, select = -c(yrmo))
+
+
+post_period_crime_offense_counts <- post_period_crime %>% 
+  group_by(yrmo, offense) %>% 
+  dplyr::summarise(
+    crime_count = n()
+  )
+
+post_period_crime_offense_counts_merge <- post_period_crime_offense_counts %>%
+  mutate(month = month(yrmo)) %>%
+  dplyr::rename(
+    crime_count_post = crime_count
+  )
+post_period_crime_offense_counts_merge <- subset(post_period_crime_offense_counts_merge, select = -c(yrmo))
+
+
+# Join
+pre_post_crime_offense_counts_merge <- merge(pre_period_crime_offense_counts_merge, post_period_crime_offense_counts_merge, by.x=c("month", "offense"), by.y=c("month", "offense"), sort = FALSE)
+
+offense_list <- unique(unlist(pre_post_crime_offense_counts_merge$offense))
+
+for(i in offense_list) {
+  print(i)
+}
+```
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+- Homicides increased in the post-period (statistically significant at the 10% level)
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+sub_data1 <- pre_post_crime_offense_counts_merge %>% 
+  filter(offense == "HOMICIDE")
+
+boxplot2 <- plot_ly(data = sub_data1, y = sub_data1$crime_count_pre, type = "box", name="Pre-Period Homicide Count")
+boxplot2 <- boxplot2 %>% 
+  add_trace(data= sub_data1, y = sub_data1$crime_count_post, type = "box", name = "Post-Period Homicide Count")
+boxplot2 <- boxplot2 %>% 
+  layout(showlegend=FALSE)
+
+boxplot2
+
+```
+
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+t.test(sub_data1$crime_count_pre,sub_data1$crime_count_post, mu = 0, conf.level = 0.95, alternative = "two.sided")
+```
+
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+- Motor Vehicle Thefts increased in the post-period (statistically significant at the 0.1% level)
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+sub_data2 <- pre_post_crime_offense_counts_merge %>% 
+  filter(offense == "MOTOR VEHICLE THEFT")
+
+boxplot3 <- plot_ly(data = sub_data2, y = sub_data2$crime_count_pre, type = "box", name="Pre-Period Motor Vehicle Theft Count")
+boxplot3 <- boxplot3 %>% 
+  add_trace(data= sub_data2, y = sub_data2$crime_count_post, type = "box", name = "Post-Period Motor Vehicle Theft Count")
+boxplot3 <- boxplot3 %>% 
+  layout(showlegend=FALSE)
+
+boxplot3
+
+```
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+t.test(sub_data2$crime_count_pre,sub_data2$crime_count_post, mu = 0, conf.level = 0.95, alternative = "two.sided")
+```
+
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+- Theft F/Auto decreased in the post-period (statistically significant at the 0.1% level)
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+sub_data3 <- pre_post_crime_offense_counts_merge %>% 
+  filter(offense == "THEFT F/AUTO")
+
+boxplot4 <- plot_ly(data = sub_data3, y = sub_data3$crime_count_pre, type = "box", name="Pre-Period Theft From Auto Count")
+boxplot4 <- boxplot4 %>% 
+  add_trace(data= sub_data3, y = sub_data3$crime_count_post, type = "box", name = "Post-Period Theft From Auto Count")
+boxplot4 <- boxplot4 %>% 
+  layout(showlegend=FALSE)
+
+boxplot4
+
+```
+
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+t.test(sub_data3$crime_count_pre,sub_data3$crime_count_post, mu = 0, conf.level = 0.95, alternative = "two.sided")
+```
+
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+- Theft/Other decreased in the post-period (statistically significant at the 0.1% level)
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+sub_data4 <- pre_post_crime_offense_counts_merge %>% 
+  filter(offense == "THEFT/OTHER")
+
+boxplot5 <- plot_ly(data = sub_data4, y = sub_data4$crime_count_pre, type = "box", name="Pre-Period Theft/Other Count")
+boxplot5 <- boxplot5 %>% 
+  add_trace(data= sub_data4, y = sub_data4$crime_count_post, type = "box", name = "Post-Period Theft/Other Count")
+boxplot5 <- boxplot5 %>% 
+  layout(showlegend=FALSE)
+
+boxplot5
+
+```
+##  How did each crime type change after the city was shutdown in mid-March 2020? 
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+t.test(sub_data4$crime_count_pre,sub_data4$crime_count_post, mu = 0, conf.level = 0.95, alternative = "two.sided")
+```
+
+
+## Is there a relationship between the number of reported crime and income/demographic variables?
+- I tried different models and at different levels of the dataset (Census Tract, Census Tract-Offense Type, Census Tract-Violent Crime Dummy Variable)
+- I was persistently getting low values of adjusted R-squared. The highest I got was around 32%.
+
+## Is there a relationship between the number of reported crime and income/demographic variables? - Tables of Regression Results
+- The next few slides show the different regressions I ran. All of them had low adjusted R-squared values.
+- This table shows results looking at the reported crime counts across all offense types.
+```{r, out.width = "85%", out.height="85%"}
+knitr::include_graphics("D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/Regression Outputs_Census Tract Level.pdf")
+```
+
+## Is there a relationship between the number of reported crime and income/demographic variables? - Tables of Regression Results
+- This table shows results looking at the reported crime counts controlling for each offense type.
+```{r, out.width = "85%", out.height="85%"}
+knitr::include_graphics("D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/Regression Outputs_Census Tract-Offense Level.pdf")
+```
+
+## Is there a relationship between the number of reported crime and income/demographic variables? - Tables of Regression Results
+- This table shows results when I apply the same model to each offense type individually.
+```{r, out.width = "85%", out.height="85%"}
+knitr::include_graphics("D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/Regression Outputs_Census Tract-Offense Level2.pdf")
+```
+
+## Is there a relationship between the number of reported crime and income/demographic variables? - Tables of Regression Results
+- This table shows results when I categorize each offense as violent_crime = 1 or 0.
+```{r, out.width = "85%", out.height="85%"}
+knitr::include_graphics("D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/Regression Outputs_Census Tract-Violent Crimes Level.pdf")
+```
+
+## Is there a relationship between the number of reported crime and income/demographic variables?
+- The results that follow uses a dataset at the Census Tract-Violent Crime Dummy Variable level.
+- Assault w/ Dangerous Weapon, Burglary, Homicide, Robbery, Sex Abuse, and Arson all categorized as violent_crime = 1.
+- Motor Vehicle Theft, Theft From Auto, and Theft/Other are all categorized as violent_crime = 0.
+- Then the dataset was aggregated so each observation was a Census Tract and the dummy variable violent_crime as 1 or 0.
+
+## Is there a relationship between the number of reported crime and income/demographic variables? - Tables of Regression Results
+
+```{r, out.width = "85%", out.height="85%"}
+knitr::include_graphics("D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/Regression Outputs_Census Tract-Violent Crimes Level2.pdf")
+```
+
+## Is there a relationship between the number of reported crime and income/demographic variables?
+- For violent crimes, median age has a small negative relationship (-0.67 coefficient) and statistically significant at the 5% level. The higher the median age of a census tract, the less violent crimes are reported.
+
+- For non-violent crimes, the % Asian and % Hawaiian/Pacific Islander variables have large and positive relationships, significant at the 5% amd 0.1% levels, respectively.
+- However, I am suspicious of these relationships. The highest value of % Asian in the data is 22%. The highest value of % Hawaiian/Pacific Islander in the data is 3%. So I think something else is driving these results.
+- Also, because of the low adjusted R-squared, more work is needed to flesh out these relationships.
+
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+
+census_tract_shps <- raster::shapefile('D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/data/cb_2018_11_tract_500k/cb_2018_11_tract_500k.shp')
+
+census_tract_inc <- dplyr::select(hh_income_2019, census_tract,med_hh_income)
+
+census_tract_inc <- dplyr::rename(census_tract_inc, TRACTCE = census_tract)
+
+census_tract_inc <- filter(census_tract_inc, !is.na(census_tract_inc$med_hh_income))
+
+census_tract_shps@data <- left_join(census_tract_shps@data, census_tract_inc)
+
+
+census_tract_demo <- dplyr::rename(demo_census_tract3, TRACTCE = census_tract)
+
+census_tract_shps@data <- left_join(census_tract_shps@data, census_tract_demo)
+
+tag.map.title <- tags$style(HTML("
+  .leaflet-control.map-title {
+    transform: translate(-50%,20%);
+    position: fixed !important;
+    left: 50%;
+    text-align: center;
+    padding-left: 10px;
+    padding-right: 10px;
+    background: rgba(255,255,255,0.75);
+    font-weight: bold;
+    font-size: 28px;
+  }
+"))
+```
+
+
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+crime_2019_clean_offensegroup <- crime_2019_clean %>%
+  mutate(
+    violent_crime = case_when(
+    offense == "ASSAULT W/DANGEROUS WEAPON" ~ 1,
+    offense == "BURGLARY" ~ 1,
+    offense == "HOMICIDE" ~ 1,
+    offense == "MOTOR VEHICLE THEFT" ~ 0,
+    offense == "ROBBERY" ~ 1,
+    offense == "SEX ABUSE" ~ 1,
+    offense == "THEFT F/AUTO" ~ 0,
+    offense == "THEFT/OTHER" ~ 0,
+    offense == "ARSON" ~ 1
+
+    )
+  )
+
+#Subset data by each offense type
+crime_2019_clean_violent <- crime_2019_clean_offensegroup %>%
+  filter(violent_crime == 1)
+crime_2019_clean_violent <- dplyr::select(crime_2019_clean_violent,x, y,offense, start_date, violent_crime)
+
+crime_2019_clean_nonviolent <- crime_2019_clean_offensegroup %>%
+  filter(violent_crime == 0)
+crime_2019_clean_nonviolent <- dplyr::select(crime_2019_clean_nonviolent,x, y,offense, start_date, violent_crime)
+
+
+# Create labels and specific palettes for each shape layer
+labels_med_inc <- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, prettyNum(census_tract_shps@data$med_hh_income, big.mark = ",")
+) %>% lapply(htmltools::HTML)
+pal_med_inc <- colorNumeric(palette = "Greens", domain=census_tract_shps@data$med_hh_income)
+title_med_inc <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>Median HH Income"))
+
+labels_age_median<- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, prettyNum(census_tract_shps@data$age_median, big.mark = ",")
+) %>% lapply(htmltools::HTML)
+pal_age_median <- colorNumeric(palette = "BuPu", domain=census_tract_shps@data$age_median)
+title_age_median <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>Median Age"))
+
+labels_pop_dens<- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, prettyNum(census_tract_shps@data$pop_dens, big.mark = ",")
+) %>% lapply(htmltools::HTML)
+pal_pop_dens <- colorNumeric(palette = "Blues", domain=census_tract_shps@data$pop_dens)
+title_pop_dens <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>Population Density"))
+
+labels_sex_ratio<- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, prettyNum(census_tract_shps@data$sex_age_sex_ratio, big.mark = ",")
+) %>% lapply(htmltools::HTML)
+pal_sex_ratio <- colorNumeric(palette = "OrRd", domain=census_tract_shps@data$sex_age_sex_ratio)
+title_sex_ratio <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>Sex Ratio"))
+
+labels_pct_white <- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, label_percent()(census_tract_shps@data$pct_white)
+) %>% lapply(htmltools::HTML)
+pal_pct_white <- colorNumeric(palette = "YlGnBu", domain=census_tract_shps@data$pct_white)
+title_pct_white <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>% White"))
+
+labels_pct_black <- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, label_percent()(census_tract_shps@data$pct_black)
+) %>% lapply(htmltools::HTML)
+pal_pct_black <- colorNumeric(palette = "PuRd", domain=census_tract_shps@data$pct_black)
+title_pct_black <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>% Black"))
+
+labels_pct_asian <- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, label_percent()(census_tract_shps@data$pct_asian)
+) %>% lapply(htmltools::HTML)
+pal_pct_asian <- colorNumeric(palette = "Reds", domain=census_tract_shps@data$pct_asian)
+title_pct_asian <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>% Asian"))
+
+labels_pct_hispanic_latino <- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, label_percent()(census_tract_shps@data$pct_hispanic_latino)
+) %>% lapply(htmltools::HTML)
+pal_pct_hispanic_latino <- colorNumeric(palette = "Purples", domain=census_tract_shps@data$pct_hispanic_latino)
+title_pct_hispanic_latino <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>% Hispanic/Latino"))
+
+labels_pct_hawaiian_pi <- sprintf(
+  "<strong>%s</strong><br/>%s",
+  census_tract_shps@data$TRACTCE, label_percent()(census_tract_shps@data$pct_hawaiian_pi)
+) %>% lapply(htmltools::HTML)
+pal_pct_hawaiian_pi <- colorNumeric(palette = "PuBuGn", domain=census_tract_shps@data$pct_hawaiian_pi)
+title_pct_hawaiian_pi <- tags$div(tag.map.title, HTML("2019 Reported Crimes by Census Tract<br>% Hawaiian/Pacific Islander"))
+```
+
+## How are various types of crimes distributed around Washington, D.C.? | Median HH Income
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_med_inc <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_med_inc(census_tract_shps@data$med_hh_income),
+              label = labels_med_inc) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+   addControl(title_med_inc, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_med_inc, values = census_tract_shps@data$med_hh_income,
+            title = "Median Household Income",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_med_inc, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_median_hh_income.html")
+map_med_inc
+```
+
+## How are various types of crimes distributed around Washington, D.C.? | Median Age
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_age_median <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_age_median(census_tract_shps@data$age_median),
+              label = labels_age_median) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+   addControl(title_age_median, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_age_median, values = census_tract_shps@data$age_median,
+            title = "Median Age",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_age_median, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_age_median.html")
+map_age_median
+```
+
+## How are various types of crimes distributed around Washington, D.C.? | Population Density
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_pop_dens <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_pop_dens(census_tract_shps@data$pop_dens),
+              label = labels_pop_dens) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+   addControl(title_pop_dens, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_pop_dens, values = census_tract_shps@data$pop_dens,
+            title = "Population Density",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_pop_dens, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_pop_dens.html")
+map_pop_dens
+```
+
+
+## How are various types of crimes distributed around Washington, D.C.? | Sex Ratio
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_sex_ratio <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_sex_ratio(census_tract_shps@data$sex_age_sex_ratio),
+              label = labels_sex_ratio) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+   addControl(title_sex_ratio, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_sex_ratio, values = census_tract_shps@data$sex_age_sex_ratio,
+            title = "Sex Ratio",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_sex_ratio, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_sex_ratio.html")
+map_sex_ratio
+```
+
+## How are various types of crimes distributed around Washington, D.C.? | % White
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_pct_white <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_pct_white(census_tract_shps@data$pct_white),
+              label = labels_pct_white) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+   addControl(title_pct_white, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_pct_white, values = census_tract_shps@data$pct_white,
+            title = "% White",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_pct_white, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_pct_white.html")
+map_pct_white
+```
+
+## How are various types of crimes distributed around Washington, D.C.? | % Black
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_pct_black <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_pct_black(census_tract_shps@data$pct_black),
+              label = labels_pct_black) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+  addControl(title_pct_black, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_pct_black, values = census_tract_shps@data$pct_black,
+            title = "% Black",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_pct_black, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_pct_black.html")
+map_pct_black
+```
+## How are various types of crimes distributed around Washington, D.C.? | % Asian
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_pct_asian <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_pct_asian(census_tract_shps@data$pct_asian),
+              label = labels_pct_asian) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+  addControl(title_pct_asian, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_pct_asian, values = census_tract_shps@data$pct_asian,
+            title = "% Asian",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_pct_asian, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_pct_asian.html")
+map_pct_asian
+```
+
+## How are various types of crimes distributed around Washington, D.C.? | % Hispanic/Latino
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_pct_hispanic_latino <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_pct_hispanic_latino(census_tract_shps@data$pct_hispanic_latino),
+              label = labels_pct_hispanic_latino) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+  addControl(title_pct_hispanic_latino, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_pct_hispanic_latino, values = census_tract_shps@data$pct_hispanic_latino,
+            title = "% Hispanic/Latino",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_pct_hispanic_latino, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_pct_hispanic_latino.html")
+map_pct_hispanic_latino
+```
+
+## How are various types of crimes distributed around Washington, D.C.? | % Hawaiian/Pacific Islander
+```{r warning=FALSE, message=FALSE, tidy=TRUE, fig.align = 'center', echo=FALSE}
+map_pct_hawaiian_pi <- leaflet() %>%
+  addTiles(urlTemplate = "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}{r}.png") %>%
+  setView(lng = -77.03795538720566, lat = 38.90995852653677, zoom = 12) %>%
+  addPolygons(data = census_tract_shps, stroke=TRUE, fillOpacity = 0.7, smoothFactor = 0.5, weight = 1,
+              color = "black", opacity = 1,
+              fillColor = ~pal_pct_hawaiian_pi(census_tract_shps@data$pct_hawaiian_pi),
+              label = labels_pct_hawaiian_pi) %>%
+  addMarkers(data = crime_2019_clean_violent, lng = crime_2019_clean_violent$x, lat = crime_2019_clean_violent$y, popup = crime_2019_clean_violent$offense,
+             clusterOptions = markerClusterOptions(), group="Violent Crime") %>%
+  addMarkers(data = crime_2019_clean_nonviolent, lng = crime_2019_clean_nonviolent$x, lat = crime_2019_clean_nonviolent$y, popup = crime_2019_clean_nonviolent$offense,
+             clusterOptions = markerClusterOptions(), group="Non-Violent Crime") %>%
+  addControl(title_pct_hawaiian_pi, position = "topleft", className="map-title") %>%
+  addLegend("bottomright", pal = pal_pct_hawaiian_pi, values = census_tract_shps@data$pct_hawaiian_pi,
+            title = "% Hawaiian/Pacific Islander",
+            opacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Violent Crime", "Non-Violent Crime"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+saveWidget(map_pct_hawaiian_pi, file = "D:/ROB/MICA/Spring 2021/MVIS 5301.01/Final Project/Submitted Files/output/map_pct_hawaiian_pi.html")
+map_pct_hawaiian_pi
+```
+
+## Potential next steps
+- Add a "diversity index" variable to replace the % race variables.
+- A measure of "police presence" by each area.
+- A measure of any active "crime prevention" initiatives.
